@@ -133,7 +133,6 @@ The service will be available at `https://your-worker.your-subdomain.workers.dev
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `QWEN_CLI_AUTH` | ✅ | OAuth2 credentials JSON from Qwen Code CLI |
-| `QWEN_KV` | ✅ | KV namespace binding for token storage |
 | `OPENAI_API_KEY` | ❌ | API key for client authentication |
 | `OPENAI_MODEL` | ❌ | Default model override |
 | `OPENAI_BASE_URL` | ❌ | Custom base URL (uses OAuth resource_url if available) |
