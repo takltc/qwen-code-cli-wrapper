@@ -31,12 +31,12 @@ You need OAuth2 credentials from the official Qwen Code CLI.
 
 1. **Install Qwen Code CLI**:
    ```bash
-   npm install -g @qwen-code/qwen-code
+   npm install -g @qwen-code/qwen-code@latest
    ```
 
 2. **Start Qwen Code and authenticate**:
    ```bash
-   qwen-code
+   qwen
    ```
 
    Select your preferred authentication method when prompted.
@@ -64,13 +64,6 @@ You need OAuth2 credentials from the official Qwen Code CLI.
      "token_type": "Bearer"
    }
    ```
-
-#### Alternative: API Key Authentication
-
-You can also configure API key authentication for client access:
-```bash
-export OPENAI_API_KEY="sk-your-secret-key-here"
-```
 
 ### Step 2: Create KV Namespace
 
