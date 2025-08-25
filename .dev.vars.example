@@ -1,0 +1,12 @@
+# Authentication - paste your oauth_creds.json content here (as a JSON string)
+# You can get this by running the Qwen CLI and copying the oauth_creds.json content
+QWEN_CLI_AUTH={  "access_token": "...",  "refresh_token": "w-...",  "token_type": "Bearer",  "resource_url": "portal.qwen.ai",  "expiry_date": 1756155744889}
+
+# Default model to use
+OPENAI_MODEL='qwen3-coder-plus'
+
+# Optional: API key for user authentication (if set, users must provide it in Authorization header)
+# OPENAI_API_KEY='sk-your-secret-key-here'
+
+# Optional: Custom base URL (will use resource_url from OAuth if available)
+# OPENAI_BASE_URL='https://api-inference.modelscope.cn/v1'
