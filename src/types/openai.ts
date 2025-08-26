@@ -2,9 +2,24 @@
  * OpenAI API Types
  */
 
+export interface OpenAITextContent {
+	type: 'text';
+	text: string;
+}
+
+export interface OpenAIImageContent {
+	type: 'image_url';
+	image_url: {
+		url: string;
+		detail?: 'auto' | 'low' | 'high';
+	};
+}
+
+export type OpenAIContentItem = OpenAITextContent | OpenAIImageContent;
+
 export interface OpenAIMessage {
 	role: 'system' | 'user' | 'assistant';
-	content: string;
+	content: string | OpenAIContentItem[];
 }
 
 export interface ChatCompletionsBody {

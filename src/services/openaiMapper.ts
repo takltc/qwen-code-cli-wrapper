@@ -1,10 +1,22 @@
-import type { OpenAIMessage, ChatCompletionsBody, UpstreamChatCreate } from '../types/openai';
+import type { OpenAIMessage, ChatCompletionsBody, UpstreamChatCreate, OpenAIContentItem } from '../types/openai';
 import { validateChatBody } from '../config/validation';
+
+function normalizeContent(content: string | OpenAIContentItem[]): string {
+	if (typeof content === 'string') {
+		return content;
+	}
+	
+	// For array content, extract text from all text items
+	return content
+		.filter((item): item is Extract<OpenAIContentItem, { type: 'text' }> => item.type === 'text')
+		.map((item) => item.text)
+		.join('\n');
+}
 
 export function toUpstreamPayload(body: ChatCompletionsBody, model: string): UpstreamChatCreate {
 	return {
 		model,
-		messages: body.messages.map((m) => ({ role: m.role, content: m.content })),
+		messages: body.messages.map((m) => ({ role: m.role, content: normalizeContent(m.content) })),
 		stream: !!body.stream,
 		temperature: body.temperature,
 		top_p: body.top_p,

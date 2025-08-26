@@ -30,9 +30,40 @@ function isValidMessage(value: unknown): value is OpenAIMessage {
 	const role = value.role;
 	const content = value.content;
 
-	return (
-		typeof role === 'string' && ['system', 'user', 'assistant'].includes(role) && typeof content === 'string' && content.trim().length > 0
-	);
+	// Validate role
+	if (typeof role !== 'string' || !['system', 'user', 'assistant'].includes(role)) {
+		return false;
+	}
+
+	// Handle different content types
+	if (typeof content === 'string') {
+		// Simple string content
+		return content.trim().length > 0;
+	} else if (Array.isArray(content)) {
+		// Array of content objects (for multimodal messages)
+		return content.length > 0 && content.every((item) => {
+			if (!isObject(item)) return false;
+			if (!('type' in item)) return false;
+			
+			const type = item.type;
+			if (typeof type !== 'string') return false;
+			
+			// Handle text content
+			if (type === 'text') {
+				return 'text' in item && typeof item.text === 'string' && item.text.trim().length > 0;
+			}
+			
+			// Handle image content (if supported)
+			if (type === 'image_url') {
+				return 'image_url' in item && isObject(item.image_url) && 'url' in item.image_url;
+			}
+			
+			// Allow other content types to pass through
+			return true;
+		});
+	}
+
+	return false;
 }
 
 function validateOptionalNumber(value: unknown, fieldName: string, min?: number, max?: number): number | undefined {
@@ -71,9 +102,10 @@ export function validateChatBody(body: unknown): ChatCompletionsBody {
 
 	// Validate each message
 	const validatedMessages: OpenAIMessage[] = [];
-	for (const message of rawBody.messages) {
+	for (let i = 0; i < rawBody.messages.length; i++) {
+		const message = rawBody.messages[i];
 		if (!isValidMessage(message)) {
-			throw new Error('Each message must have valid role (system|user|assistant) and non-empty content string');
+			throw new Error(`Message at index ${i} is invalid: must have valid role (system|user|assistant) and non-empty content. Received: ${JSON.stringify(message)}`);
 		}
 		validatedMessages.push(message);
 	}
