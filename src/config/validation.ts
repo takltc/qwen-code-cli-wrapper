@@ -2,7 +2,7 @@
  * Request validation schemas with strong typing
  */
 
-import type { ChatCompletionsBody, OpenAIMessage } from '../types/openai';
+import type { ChatCompletionsBody, OpenAIMessage, Tool, ToolChoice, OpenAIRole } from '../types/openai';
 
 // Raw request body type for validation
 interface RawChatRequest {
@@ -15,6 +15,9 @@ interface RawChatRequest {
 	presence_penalty?: unknown;
 	frequency_penalty?: unknown;
 	seed?: unknown;
+
+	tools?: unknown;
+	tool_choice?: unknown;
 }
 
 // Type guard to check if value is a plain object
@@ -24,23 +27,35 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 // Type guard for message object
 function isValidMessage(value: unknown): value is OpenAIMessage {
-	if (!isObject(value)) return false;
-	if (!('role' in value) || !('content' in value)) return false;
+    if (!isObject(value)) return false;
+    if (!('role' in value) || !('content' in value)) return false;
 
-	const role = value.role;
-	const content = value.content;
+    const role = value.role;
+    const content = value.content;
+    const toolCalls = (value as any).tool_calls;
 
-	// Validate role
-	if (typeof role !== 'string' || !['system', 'user', 'assistant'].includes(role)) {
-		return false;
-	}
+    // Validate role
+    const validRoles: OpenAIRole[] = ['system', 'user', 'assistant', 'tool', 'function'];
+    if (typeof role !== 'string' || !validRoles.includes(role as OpenAIRole)) {
+        return false;
+    }
 
-	// Handle different content types
-	if (typeof content === 'string') {
-		// Simple string content
-		return content.trim().length > 0;
-	} else if (Array.isArray(content)) {
-		// Array of content objects (for multimodal messages)
+    // Assistant messages are valid when they include tool_calls even if content is empty/null
+    if (role === 'assistant' && Array.isArray(toolCalls) && toolCalls.length > 0) {
+        return true;
+    }
+
+    // Tool/function role: accept any non-undefined content; mapper will stringify
+    if ((role === 'tool' || role === 'function') && content !== undefined && content !== null) {
+        return true;
+    }
+
+    // Handle different content types
+    if (typeof content === 'string') {
+        // Simple string content
+        return content.trim().length > 0;
+    } else if (Array.isArray(content)) {
+        // Array of content objects (for multimodal messages)
 		return content.length > 0 && content.every((item) => {
 			if (!isObject(item)) return false;
 			if (!('type' in item)) return false;
@@ -118,6 +133,17 @@ export function validateChatBody(body: unknown): ChatCompletionsBody {
 	const presencePenalty = validateOptionalNumber(rawBody.presence_penalty, 'presence_penalty', -2, 2);
 	const frequencyPenalty = validateOptionalNumber(rawBody.frequency_penalty, 'frequency_penalty', -2, 2);
 
+	// Optional tools and tool_choice (accept and pass through lightly validated)
+	let tools: Tool[] | undefined;
+	if (Array.isArray(rawBody.tools)) {
+		// minimal shape check for function tools
+		tools = rawBody.tools as Tool[];
+	}
+	let toolChoice: ToolChoice | undefined;
+	if (rawBody.tool_choice !== undefined) {
+		toolChoice = rawBody.tool_choice as ToolChoice;
+	}
+
 	// Build validated result
 	const result: ChatCompletionsBody = {
 		messages: validatedMessages,
@@ -129,6 +155,9 @@ export function validateChatBody(body: unknown): ChatCompletionsBody {
 	if (maxTokens !== undefined) result.max_tokens = maxTokens;
 	if (presencePenalty !== undefined) result.presence_penalty = presencePenalty;
 	if (frequencyPenalty !== undefined) result.frequency_penalty = frequencyPenalty;
+
+	if (tools !== undefined) (result as any).tools = tools;
+	if (toolChoice !== undefined) (result as any).tool_choice = toolChoice;
 
 	return result;
 }
