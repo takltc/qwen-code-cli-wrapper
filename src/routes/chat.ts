@@ -6,6 +6,8 @@ import { validateChatBody } from '../config/validation';
 import { KV_CREDENTIALS_KEY } from '../services/credentials';
 import { AuthService } from '../services/auth';
 import type { AssistantToolCall, ChatCompletionResponse } from '../types/openai';
+import { extractToolInvocations, removeToolJsonContent, sanitizeToolCalls } from '../services/tools';
+import { transformOpenAISSE } from '../services/streamTransform';
 
 export function registerChatRoutes<E extends Record<string, unknown>>(app: Hono<E>) {
   app.post('/v1/chat/completions', async (c) => {
@@ -18,6 +20,7 @@ export function registerChatRoutes<E extends Record<string, unknown>>(app: Hono<
         OPENAI_API_KEY?: string;
         API_TIMEOUT_MS?: string;
         API_MAX_RETRIES?: string;
+        TOOL_SUPPORT?: string;
       };
 
       // Optional API key auth
@@ -67,6 +70,10 @@ export function registerChatRoutes<E extends Record<string, unknown>>(app: Hono<
 
       // Streaming: pass-through SSE unmodified (align with Qwen Code)
       if (payload.stream) {
+        const enableToolExtraction = String(env.TOOL_SUPPORT || '').toLowerCase() === 'true';
+        if (enableToolExtraction) {
+          return transformOpenAISSE(upstream, { enableToolExtraction: true });
+        }
         return upstream;
       }
 
@@ -93,6 +100,18 @@ export function registerChatRoutes<E extends Record<string, unknown>>(app: Hono<
               (msg as { content: null }).content = null;
             } else if (msg && 'tool_calls' in (msg as Record<string, unknown>) && (!Array.isArray((msg as Record<string, unknown>)['tool_calls']) || ((msg as Record<string, unknown>)['tool_calls'] as unknown[]).length === 0)) {
               delete (msg as Record<string, unknown>)['tool_calls'];
+            } else if (msg && typeof msg.content === 'string') {
+              // Optional server-side extraction of tool calls from text-only assistant messages
+              const enableToolExtraction = String((c.env as { TOOL_SUPPORT?: string }).TOOL_SUPPORT || '').toLowerCase() === 'true';
+              if (enableToolExtraction) {
+                const extracted = extractToolInvocations(msg.content);
+                if (extracted && extracted.length > 0) {
+                  const calls = sanitizeToolCalls(extracted) as AssistantToolCall[];
+                  (msg as { tool_calls: AssistantToolCall[]; content: null }).tool_calls = calls;
+                  const cleaned = removeToolJsonContent(msg.content || '');
+                  (msg as { content: string | null }).content = cleaned || null;
+                }
+              }
             }
           }
         }

@@ -25,7 +25,7 @@ export function contentToString(content: unknown): string {
 	return '';
 }
 
-export function generateToolPrompt(tools: Tool[]): string {
+export function generateToolPrompt(tools: Tool[], toolChoice?: ToolChoice): string {
 	if (!tools || tools.length === 0) return '';
 
 	const sections: string[] = [];
@@ -58,12 +58,23 @@ export function generateToolPrompt(tools: Tool[]): string {
 
 	if (sections.length === 0) return '';
 
+	const choiceHints: string[] = [];
+	if (toolChoice && typeof toolChoice === 'object' && toolChoice.type === 'function' && (toolChoice as { function?: { name?: string } }).function?.name) {
+		choiceHints.push(`- You MUST call function "${(toolChoice as { function: { name: string } }).function.name}" exactly once when appropriate.`);
+	} else if (toolChoice === 'required') {
+		choiceHints.push('- You MUST call at least one function to complete the task.');
+	} else {
+		choiceHints.push('- Call a function only when it is necessary.');
+	}
+
 	const instructions =
 		"\n\n# AVAILABLE FUNCTIONS\n" +
 		sections.join('\n\n---\n') +
 		"\n\n# TOOL USAGE GUIDELINES\n" +
-		"- Call a tool only when an external action is required.\n" +
-		"- Keep calls minimal and specific to the user request.\n";
+		choiceHints.concat([
+			'- Provide valid JSON for function arguments, without comments.',
+			'- Keep calls minimal and specific to the user request.',
+		]).join('\n');
 
 	return instructions;
 }
@@ -76,7 +87,7 @@ export function processMessagesWithTools(messages: OpenAIMessage[], tools?: Tool
 		return copied;
 	}
 
-	const toolPrompt = generateToolPrompt(tools);
+	const toolPrompt = generateToolPrompt(tools, toolChoice);
 
 	// Inject prompt only into the first system message (or create one at the top). Preserve all messages.
 	let injected = false;
@@ -305,9 +316,9 @@ export function cleanOrphanedToolCalls(messages: OpenAIMessage[]): OpenAIMessage
 			for (const tc of m.tool_calls) {
 				if (tc?.id) toolCallIds.add(String(tc.id));
 			}
-		} else if (m.role === 'tool' && typeof m.tool_call_id === 'string' && m.tool_call_id.length > 0) {
-			toolResponseIds.add(m.tool_call_id);
-		}
+    } else if ((m.role === 'tool' || m.role === 'function') && typeof m.tool_call_id === 'string' && m.tool_call_id.length > 0) {
+        toolResponseIds.add(m.tool_call_id);
+    }
 	}
 
 	const cleaned: OpenAIMessage[] = [];
@@ -325,18 +336,18 @@ export function cleanOrphanedToolCalls(messages: OpenAIMessage[]): OpenAIMessage
 				copy.content = content;
 				cleaned.push(copy);
 			}
-		} else if (m.role === 'tool' && typeof m.tool_call_id === 'string' && m.tool_call_id.length > 0) {
-			const id = m.tool_call_id;
-			if (toolCallIds.has(id)) cleaned.push(m);
-		} else {
-			cleaned.push(m);
-		}
+        } else if ((m.role === 'tool' || m.role === 'function') && typeof m.tool_call_id === 'string' && m.tool_call_id.length > 0) {
+            const id = m.tool_call_id;
+            if (toolCallIds.has(id)) cleaned.push(m);
+        } else {
+            cleaned.push(m);
+        }
 	}
 
 	const finalToolResponseIds = new Set<string>();
-	for (const m of cleaned) {
-		if (m.role === 'tool' && typeof m.tool_call_id === 'string' && m.tool_call_id.length > 0) finalToolResponseIds.add(m.tool_call_id);
-	}
+    for (const m of cleaned) {
+        if ((m.role === 'tool' || m.role === 'function') && typeof m.tool_call_id === 'string' && m.tool_call_id.length > 0) finalToolResponseIds.add(m.tool_call_id);
+    }
 	const final: OpenAIMessage[] = [];
 	for (const m of cleaned) {
 		if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
@@ -368,28 +379,28 @@ function reorderToolMessages(messages: OpenAIMessage[]): OpenAIMessage[] {
 	const consumed = new Set<number>();
 	for (let i = 0; i < messages.length; i++) {
 		const m = messages[i];
-		if (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
-			result.push(m);
-			const ids = new Set<string>();
-			for (const tc of m.tool_calls) if (tc?.id) ids.add(String(tc.id));
-			// Pull matching tool messages that occur after this assistant until the next assistant
-			for (let j = i + 1; j < messages.length; j++) {
-				if (consumed.has(j)) continue;
-				const n = messages[j];
-				if (n.role === 'assistant') break;
-				if (n.role === 'tool' && typeof n.tool_call_id === 'string' && ids.has(n.tool_call_id)) {
-					result.push(n);
-					consumed.add(j);
-				}
-			}
-			continue;
-		}
-		if (m.role === 'tool') {
-			// Stray tool message (no immediately preceding assistant with tool_calls) is dropped
-			continue;
-		}
-		result.push(m);
-	}
+        if (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
+            result.push(m);
+            const ids = new Set<string>();
+            for (const tc of m.tool_calls) if (tc?.id) ids.add(String(tc.id));
+            // Pull matching tool messages that occur after this assistant until the next assistant
+            for (let j = i + 1; j < messages.length; j++) {
+                if (consumed.has(j)) continue;
+                const n = messages[j];
+                if (n.role === 'assistant') break;
+                if ((n.role === 'tool' || n.role === 'function') && typeof n.tool_call_id === 'string' && ids.has(n.tool_call_id)) {
+                    result.push(n);
+                    consumed.add(j);
+                }
+            }
+            continue;
+        }
+        if (m.role === 'tool' || m.role === 'function') {
+            // Stray tool message (no immediately preceding assistant with tool_calls) is dropped
+            continue;
+        }
+        result.push(m);
+    }
 	return result;
 }
 

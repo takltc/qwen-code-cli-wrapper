@@ -45,15 +45,15 @@ export function toUpstreamPayload(body: ChatCompletionsBody, model: string): Ups
 			mappedMessages.push({ role: 'assistant', content: null, tool_calls: toolCalls });
 			continue;
 		}
-		if (m.role === 'tool') {
-			mappedMessages.push({
-				role: 'tool',
-				tool_call_id: (m as { tool_call_id?: string }).tool_call_id,
-				name: (m as { name?: string }).name,
-				content: normalizeContent(m.content as string | OpenAIContentItem[]),
-			});
-			continue;
-		}
+    if (m.role === 'tool' || m.role === 'function') {
+        mappedMessages.push({
+            role: 'tool',
+            tool_call_id: (m as { tool_call_id?: string }).tool_call_id,
+            name: (m as { name?: string }).name,
+            content: normalizeContent(m.content as string | OpenAIContentItem[]),
+        });
+        continue;
+    }
 		mappedMessages.push({ role: m.role as Exclude<OpenAIMessage['role'], 'assistant' | 'tool'>, content: normalizeContent(m.content as string | OpenAIContentItem[]) });
 	}
 

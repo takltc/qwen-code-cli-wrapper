@@ -46,7 +46,7 @@ export interface ChatCompletionsBody {
 
 export interface UpstreamChatCreate {
     model: string;
-    messages: { role: string; content: string | OpenAIContentItem[] }[];
+    messages: { role: string; content: string | OpenAIContentItem[]; tool_call_id?: string; name?: string; tool_calls?: AssistantToolCall[] }[];
     stream?: boolean;
     temperature?: number;
     top_p?: number;
