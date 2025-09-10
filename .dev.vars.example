@@ -10,3 +10,9 @@ OPENAI_MODEL='qwen3-coder-plus'
 
 # Optional: Custom base URL (will use resource_url from OAuth if available)
 # OPENAI_BASE_URL='https://api-inference.modelscope.cn/v1'
+
+# Optional: Request timeout in milliseconds (default: 30000; streaming default: 600000)
+# API_TIMEOUT_MS=30000
+
+# Optional: Max retries for transient/network errors (default: 3, range: 0-10)
+# API_MAX_RETRIES=3

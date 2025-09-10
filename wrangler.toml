@@ -6,7 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 
 # --- KV Namespaces ---
 kv_namespaces = [
-  { binding = "QWEN_KV", id = "94f45b92b27a42ecaf7db20505c153f5" }
+  { binding = "QWEN_KV", id = "f3eb5ce9c83143d69ddff79f458b0de1" }
 ]
 
 

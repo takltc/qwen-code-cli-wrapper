@@ -7,6 +7,8 @@ export interface Bindings {
 	OPENAI_MODEL?: string;
 	OPENAI_BASE_URL?: string;
 	OPENAI_API_KEY?: string; // User-facing API key for authentication
+	API_TIMEOUT_MS?: string;
+	API_MAX_RETRIES?: string;
 	TOOL_SUPPORT?: string; // 'true' to enable tool extraction pipeline
 }
 

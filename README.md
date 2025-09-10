@@ -12,8 +12,10 @@ Transform Qwen Code CLI into OpenAI-compatible endpoints using Cloudflare Worker
 - ⚡ **Cloudflare Workers** - Global edge deployment with low latency
 - 🔄 **Smart Token Management** - Automatic token refresh with KV storage
 - 📡 **Real-time Streaming** - Server-sent events for live responses
+- 🛠️ **Tool Calls (Cloud Code)** - Parse function calls from model output and stream OpenAI-compatible `tool_calls`
 - 🏗️ **Clean Architecture** - Well-structured, maintainable codebase
 - 📊 **Debug Logging** - Comprehensive logging for troubleshooting
+- ⏱️ **Configurable Timeout/Retry** - Override request timeout and retry attempts via env vars
 
 ## 🚀 Quick Start
 
@@ -94,6 +96,12 @@ QWEN_CLI_AUTH={"access_token":"your_access_token","refresh_token":"your_refresh_
 
 # Optional: Custom base URL (will use resource_url from OAuth if available)
 # OPENAI_BASE_URL=https://api-inference.modelscope.cn/v1
+
+# Optional: Request timeout in milliseconds (default: 30000; streaming default: 600000)
+# API_TIMEOUT_MS=30000
+
+# Optional: Max retries for transient/network errors (default: 3, range: 0-10)
+# API_MAX_RETRIES=3
 ```
 
 For production, set the secrets:
@@ -129,6 +137,8 @@ The service will be available at `https://your-worker.your-subdomain.workers.dev
 | `OPENAI_API_KEY` | ❌ | API key for client authentication |
 | `OPENAI_MODEL` | ❌ | Default model override |
 | `OPENAI_BASE_URL` | ❌ | Custom base URL (uses OAuth resource_url if available) |
+| `API_TIMEOUT_MS` | ❌ | Request timeout in ms (default: 30000; streaming default: 600000) |
+| `API_MAX_RETRIES` | ❌ | Max retries for transient/network errors (default: 3, range: 0-10) |
 
 #### Authentication Security
 
@@ -182,6 +192,38 @@ Content-Type: application/json
   "max_tokens": 1000
 }
 ```
+
+Tool calls (Cloud Code-style) are supported via OpenAI-compatible fields:
+
+```json
+{
+  "model": "qwen3-coder-plus",
+  "messages": [
+    { "role": "user", "content": "搜索GitHub仓库星标数最高的TypeScript框架，并返回结果。" }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "search_github",
+        "description": "Search GitHub repositories by query",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string", "description": "search keywords" },
+            "limit": { "type": "integer", "description": "result limit" }
+          },
+          "required": ["query"]
+        }
+      }
+    }
+  ],
+  "tool_choice": "auto",
+  "stream": true
+}
+```
+
+When tools are provided, the worker injects a tool catalog prompt to the system message and intercepts streaming output to extract `tool_calls` from the model’s reply. If tool calls are detected, it streams OpenAI-compatible `tool_calls` deltas and finishes with `finish_reason: "tool_calls"`. Otherwise, it streams the cleaned content.
 
 #### List Models
 ```http
@@ -441,6 +483,8 @@ src/
 
 2. **Request Mapping** (`services/openaiMapper.ts`)
    - Transforms OpenAI requests to Qwen-compatible format
+   - Injects tool prompt (no TOOL_HISTORY), keeps tool semantics (aligned with qwen-code)
+   - Preprocesses history before upstream (see below)
    - Maps sampling parameters (temperature, top_p, etc.)
    - Validates request structure
 
@@ -508,3 +552,33 @@ Any other form of distribution, sublicensing, or commercial use is strictly proh
 **⚠️ Important**: This project uses Qwen's API which may have usage limits and terms of service. Please ensure compliance with Qwen's policies when using this wrapper.
 
 [![Star History Chart](https://api.star-history.com/svg?repos=gewoonjaap/qwen-code-cli-wrapper&type=Date)](https://www.star-history.com/#gewoonjaap/qwen-code-cli-wrapper&Date)
+### History Preprocessing (Aligned with qwen-code)
+
+- `cleanOrphanedToolCalls(messages)`:
+  - Removes assistant.tool_calls without matching tool responses (role: `tool` with the same `tool_call_id`).
+  - Preserves assistant text content when present, but drops invalid tool_calls.
+  - Keeps only tool responses that correspond to existing tool_call ids.
+  - Final validation pass ensures all remaining tool_calls have corresponding tool results.
+
+- `mergeConsecutiveAssistantMessages(messages)`:
+  - Merges adjacent assistant messages by concatenating content and concatenating tool_calls arrays.
+  - Reduces fragmentation that can cause duplicated or confused follow-up calls.
+
+- `preprocessMessagesForUpstream(messages)`:
+  - Runs the two steps above before sending the conversation upstream (mirrors qwen-code behavior).
+
+This mirrors the logic in qwen-code `packages/core/src/core/openaiContentGenerator.ts` and helps reduce repeated tool calls at the source.
+
+### Response Shapes
+
+- Streaming (compat): every delta contains `content` (may be `""`) and `tool_calls` (may be `[]`).
+- Non-stream (OpenAI spec):
+  - When `tool_calls` are present on the assistant message: `content` is `null`.
+  - When no `tool_calls`: `content` is a string and we omit the `tool_calls` field.
+
+### DashScope Alignment
+
+- For DashScope-compatible providers (e.g. `.../compatible-mode/v1`), requests add:
+  - Headers: `Accept: application/json, text/event-stream`, `X-DashScope-CacheControl: enable`, and a simple `X-DashScope-UserAgent`.
+  - Cache-control content parts: When available, the system message and (for streaming) the last message are converted to content-part arrays and their last text part is annotated with `cache_control: { type: 'ephemeral' }`.
+  - This mirrors qwen-code’s `addDashScopeCacheControl` behavior.

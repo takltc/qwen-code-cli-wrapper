@@ -165,3 +165,11 @@ dist
 .env*
 !.env.example
 .wrangler/
+
+# mac
+.DS_Store
+
+# llm md
+CLAUDE.md
+AGENTS.md
+WARP.md
