@@ -67,14 +67,17 @@ export function generateToolPrompt(tools: Tool[], toolChoice?: ToolChoice): stri
 		choiceHints.push('- Call a function only when it is necessary.');
 	}
 
-	const instructions =
-		"\n\n# AVAILABLE FUNCTIONS\n" +
-		sections.join('\n\n---\n') +
-		"\n\n# TOOL USAGE GUIDELINES\n" +
-		choiceHints.concat([
-			'- Provide valid JSON for function arguments, without comments.',
-			'- Keep calls minimal and specific to the user request.',
-		]).join('\n');
+    const instructions =
+        "\n\n# AVAILABLE FUNCTIONS\n" +
+        sections.join('\n\n---\n') +
+        "\n\n# TOOL USAGE GUIDELINES\n" +
+        choiceHints.concat([
+            '- Use OpenAI tool_calls only; do not describe the call in natural language.',
+            '- When calling a tool, respond with assistant.tool_calls and no additional text.',
+            '- The function.arguments MUST be a strict JSON string (double quotes, no trailing commas).',
+            '- Do not wrap JSON in markdown fences.',
+            '- If a tool call is required, return only the tool_calls and set the content to null.',
+        ]).join('\n');
 
 	return instructions;
 }
@@ -101,9 +104,9 @@ export function processMessagesWithTools(messages: OpenAIMessage[], tools?: Tool
 		}
 		out.push(m);
 	}
-	if (!injected) {
-		out.unshift({ role: 'system', content: `你是一个有用的助手。${toolPrompt}` } as OpenAIMessage);
-	}
+    if (!injected) {
+        out.unshift({ role: 'system', content: `You are a helpful assistant.\nFollow the tool usage guidelines strictly.${toolPrompt}` } as OpenAIMessage);
+    }
 
 	return out;
 }
@@ -143,17 +146,16 @@ export function extractToolInvocations(text: string | undefined | null): ToolCal
 	if (found) return found;
 
 	// Attempt 3: natural language pattern
-	const n = FUNCTION_CALL_PATTERN.exec(scannable);
-	if (n) {
-		const name = n[1]?.trim();
-		const argsStr = n[2]?.trim();
-		try {
-			JSON.parse(argsStr);
-			// Use a more unique ID generation method
-			const uniqueId = `call_${Date.now()}_${toolCallCounter++}`;
-			return [{ id: uniqueId, type: 'function', function: { name, arguments: argsStr } }];
-		} catch {}
-	}
+    const n = FUNCTION_CALL_PATTERN.exec(scannable);
+    if (n) {
+        const name = n[1]?.trim();
+        const argsStr = n[2]?.trim();
+        const normalized = normalizeJsonish(argsStr);
+        if (normalized) {
+            const uniqueId = `call_${Date.now()}_${toolCallCounter++}`;
+            return [{ id: uniqueId, type: 'function', function: { name, arguments: normalized } }];
+        }
+    }
 
 	return null;
 }
@@ -221,12 +223,17 @@ function scanInlineJsonForToolCalls(text: string): ToolCall[] | null {
 			}
 			if (brace === 0) {
 				const jsonStr = text.slice(i, j);
-				try {
-					const parsed = JSON.parse(jsonStr) as ParsedMaybeToolCalls;
-					if (parsed && Array.isArray(parsed.tool_calls)) {
-						last = parsed.tool_calls.map((tc: unknown) => normalizeToolCall(tc));
-					}
-				} catch {}
+                try {
+                    let parsed: ParsedMaybeToolCalls | null = null;
+                    try { parsed = JSON.parse(jsonStr) as ParsedMaybeToolCalls; }
+                    catch {
+                        const coerced = normalizeJsonish(jsonStr);
+                        if (coerced) parsed = JSON.parse(coerced) as ParsedMaybeToolCalls;
+                    }
+                    if (parsed && Array.isArray((parsed as any).tool_calls)) {
+                        last = (parsed as any).tool_calls.map((tc: unknown) => normalizeToolCall(tc));
+                    }
+                } catch {}
 			}
 			i++;
 		} else {
@@ -289,6 +296,18 @@ export function removeToolJsonContent(text: string): string {
 		}
 	}
 	return result.trim();
+}
+
+// Coerce simple JSON-ish strings (single quotes, trailing commas) into strict JSON
+function normalizeJsonish(input: string | undefined | null): string | null {
+    if (!input) return null;
+    let s = String(input).trim();
+    try { JSON.parse(s); return s; } catch {}
+    // Replace single-quoted strings with double-quoted strings
+    s = s.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_m, grp) => '"' + grp.replace(/"/g, '\\"') + '"');
+    // Remove trailing commas
+    s = s.replace(/,\s*([}\]])/g, '$1');
+    try { const obj = JSON.parse(s); return JSON.stringify(obj); } catch { return null; }
 }
 
 export function sanitizeToolCalls(calls: ToolCall[]): ToolCall[] {

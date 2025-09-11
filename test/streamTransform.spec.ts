@@ -33,5 +33,25 @@ describe('transformOpenAISSE', () => {
     expect(out).toContain('tool_calls');
     expect(out).toContain('data: [DONE]');
   });
-});
 
+  it('sanitizes headers and appends [DONE] in passthrough mode', async () => {
+    // Upstream without [DONE] and with suspicious headers
+    const enc = new TextEncoder();
+    const rs = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const chunk = {
+          id: 'x', object: 'chat.completion.chunk', created: Date.now(), model: 'm',
+          choices: [ { index: 0, delta: { content: 'hello' }, finish_reason: null } ],
+        };
+        controller.enqueue(enc.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+        controller.close();
+      },
+    });
+    const upstream = new Response(rs, { headers: { 'Content-Type': 'application/octet-stream', 'Content-Encoding': 'gzip' } });
+    const transformed = transformOpenAISSE(upstream, { enableToolExtraction: false });
+    const text = await transformed.text();
+    expect(transformed.headers.get('content-type')?.startsWith('text/event-stream')).toBeTruthy();
+    expect(transformed.headers.get('content-encoding')).toBeNull();
+    expect(text).toContain('data: [DONE]');
+  });
+});
