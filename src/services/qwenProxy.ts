@@ -92,13 +92,14 @@ async function fetchWithRetry(url: string, init: RequestInit, maxRetries: number
 export async function chatCompletions(baseUrl: string, accessToken: string, payload: unknown, requestId?: string, options?: { timeoutMs?: number; maxRetries?: number }) {
 	const url = `${baseUrl}/chat/completions`;
 	const isDashScope = /dashscope/i.test(baseUrl) || /compatible-mode/i.test(baseUrl);
+	const wantsStream = !!(payload as UpstreamChatCreate).stream;
 	const init: RequestInit = {
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${accessToken}`,
 			'Content-Type': 'application/json',
-			// Align with Qwen Code: accept SSE + JSON
-			Accept: 'application/json, text/event-stream',
+			// Prefer correct Accept based on streaming to reduce provider ambiguity
+			Accept: wantsStream ? 'text/event-stream' : 'application/json',
 			...(isDashScope ? { 'X-DashScope-CacheControl': 'enable' } : {}),
 			...(isDashScope ? { 'X-DashScope-UserAgent': 'qwen-code-cli-wrapper/1.0' } : {}),
 			...(requestId ? { 'x-request-id': requestId } : {}),
