@@ -64,7 +64,7 @@ function isValidMessage(value: unknown): value is OpenAIMessage {
 			if (typeof type !== 'string') return false;
 			
 			// Handle text content
-			if (type === 'text') {
+			if (type === 'text' || type === 'input_text') {
 				return 'text' in item && typeof item.text === 'string' && item.text.trim().length > 0;
 			}
 			

@@ -5,11 +5,16 @@ function normalizeContent(content: string | OpenAIContentItem[]): string {
 	if (typeof content === 'string') {
 		return content;
 	}
-	
-	// For array content, extract text from all text items
+
+	// For array content, extract text from all known text-like items
 	return content
-		.filter((item): item is Extract<OpenAIContentItem, { type: 'text' }> => item.type === 'text')
-		.map((item) => item.text)
+		.map((item) => {
+			if ((item as any)?.type === 'text' && typeof (item as any).text === 'string') return (item as any).text as string;
+			// Responses API often uses input_text; treat it as text
+			if ((item as any)?.type === 'input_text' && typeof (item as any).text === 'string') return (item as any).text as string;
+			return '';
+		})
+		.filter(Boolean)
 		.join('\n');
 }
 
