@@ -40,7 +40,12 @@ export function registerChatRoutes<E extends Record<string, unknown>>(app: Hono<
       // Validate request and construct upstream payload
       const rawBody = await c.req.json();
       const body = validateChatBody(rawBody);
-      const model = body.model || env.OPENAI_MODEL || 'qwen3-coder-plus';
+      let model = body.model || env.OPENAI_MODEL || 'qwen3-coder-plus';
+      // Force supported Qwen model if client passes unsupported (e.g., gpt-4o from Codex CLI)
+      const allowed = new Set(['qwen3-coder-plus', 'qwen3-coder-flash']);
+      if (!allowed.has(model)) {
+        model = env.OPENAI_MODEL || 'qwen3-coder-plus';
+      }
       const payload = toUpstreamPayload(body, model);
 
       // Acquire token and base URL
@@ -68,13 +73,10 @@ export function registerChatRoutes<E extends Record<string, unknown>>(app: Hono<
       // Upstream call
       const upstream = await chatCompletions(baseUrl, token, payload, reqId, options);
 
-      // Streaming: pass-through SSE unmodified (align with Qwen Code)
+      // Streaming: ensure SSE headers; only enable tool extraction when explicitly enabled
       if (payload.stream) {
         const enableToolExtraction = String(env.TOOL_SUPPORT || '').toLowerCase() === 'true';
-        if (enableToolExtraction) {
-          return transformOpenAISSE(upstream, { enableToolExtraction: true });
-        }
-        return upstream;
+        return transformOpenAISSE(upstream, { enableToolExtraction });
       }
 
       // Non-stream JSON: normalize tool_calls and content per OpenAI spec
